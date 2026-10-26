@@ -5,7 +5,7 @@
 // Returns: { start, end, roomId, days: { "YYYY-MM-DD": { rate: number|null, available: boolean } } }
 //
 // - roomId omitted/empty -> property-wide: rate = cheapest available room type
-//   that day, available = true if ANY room type has inventory that day.
+//   that day, available = true if ANY room type has inventory that day. 
 // - roomId given -> scoped to that one room type only (same accommodation_types
 //   value the widget already sends to Cloudbeds' reservation form).
 //
