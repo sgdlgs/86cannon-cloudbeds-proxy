@@ -1418,12 +1418,42 @@
     });
   }
 
+  // Safety net for a confirmed bug in Cloudbeds' own overlay, not ours:
+  // their Immersive modal captures document.body.style.overflow as its
+  // "previous value" the moment it mounts, then restores exactly that
+  // value when it closes. Our own openPanel() above sets overflow:hidden
+  // BEFORE handing off to Cloudbeds, so their modal captures "hidden" as
+  // its baseline — and faithfully restores "hidden" (not the true
+  // original "") once it unmounts. Confirmed live: both .bw-overlay and
+  // .cb-bookingengine-root are fully gone from the DOM at that point, yet
+  // document.body.style.overflow is still "hidden", leaving the guest
+  // unable to scroll the rest of the site. Not fixable inside Cloudbeds'
+  // own bundle, so this watches for the moment both overlays are
+  // confirmed closed and forces scroll back open whenever that coincides
+  // with a still-locked body.
+  function initScrollLockSafetyNet() {
+    function correct() {
+      var oursOpen = els.panelWrap.classList.contains("is-open");
+      var cloudbedsOpen = !!document.querySelector(".cb-bookingengine-root");
+      if (!oursOpen && !cloudbedsOpen && document.body.style.overflow === "hidden") {
+        document.body.style.overflow = "";
+      }
+    }
+    new MutationObserver(correct).observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["style"]
+    });
+  }
+
   function init() {
     buildPanel();
     wireTriggers();
     initRateCardPrice();
     initCloudbedsOverlay();
     initGuestCountTextVisibility();
+    initScrollLockSafetyNet();
   }
 
   if (document.readyState === "loading") {
