@@ -1663,7 +1663,6 @@
 
   function initResumeIndicator() {
     var btn = buildResumeIndicator();
-    var textEl = btn.querySelector(".bw-resume-indicator-text");
     var busy = false;
 
     function sync() {
@@ -1680,8 +1679,7 @@
       if (!cbBtn) return;
 
       busy = true;
-      textEl.textContent = "Opening…";
-      btn.disabled = true;
+      btn.style.display = "none";
       setTidioVisible(false);
 
       // Same settle pattern as openCloudbedsOverlay above: don't treat
@@ -1700,8 +1698,6 @@
         settled = true;
         observer.disconnect();
         busy = false;
-        btn.disabled = false;
-        textEl.textContent = "Confirm your stay";
         btn.style.display = "none";
       };
       var checkSettled = function () {
@@ -1724,8 +1720,9 @@
       cbBtn.click();
 
       // Safety net matching the pattern elsewhere in this file — don't
-      // leave the indicator stuck in "Opening…" forever if something
-      // about Cloudbeds' DOM ever changes underneath this.
+      // leave "busy" stuck true forever (blocking sync() from ever
+      // showing the indicator again) if something about Cloudbeds' DOM
+      // ever changes underneath this.
       setTimeout(finishOpen, 3000);
     });
 
