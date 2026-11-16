@@ -1389,6 +1389,14 @@
       var mounted = false;
       var settlePending = null;
       var LANDING_SEARCH_SELECTOR = '[data-testid="landing-search-panel-search-button"]';
+      // The room card's own "Add"/quick-book button — same test-id pattern
+      // cloudbeds-quick-book.js already relies on. Used here as the one
+      // positive signal that the room list has actually rendered, since
+      // ".cb-bookingengine-root" itself mounts as an empty shell first
+      // (confirmed live: checking only "no landing button yet" fired
+      // finish() during that empty-shell gap, before the landing panel had
+      // even rendered into it — revealing it anyway once our panel closed).
+      var ROOM_CARD_SELECTOR = '[data-testid^="rate-plan-guest-quantity-select-"]';
       var finish = function () {
         if (mounted) return;
         mounted = true;
@@ -1398,13 +1406,18 @@
         if (onOpened) onOpened();
       };
       var checkSettled = function () {
-        if (mounted || !document.querySelector(".cb-bookingengine-root")) return;
-        var landingBtn = document.querySelector(LANDING_SEARCH_SELECTOR);
+        if (mounted) return;
+        var root = document.querySelector(".cb-bookingengine-root");
+        if (!root) return;
+        var landingBtn = root.querySelector(LANDING_SEARCH_SELECTOR);
         if (landingBtn) {
           landingBtn.click();
           return; // that click's own re-render triggers another settle check
         }
-        finish();
+        // Only finish once the room list has positively rendered — root
+        // existing with neither the landing button nor a room card yet is
+        // still mid-render, not evidence we're past the landing panel.
+        if (root.querySelector(ROOM_CARD_SELECTOR)) finish();
       };
       var scheduleSettleCheck = function () {
         if (settlePending) clearTimeout(settlePending);
