@@ -1479,6 +1479,45 @@
     });
   }
 
+  // Cloudbeds' own overlay sometimes mounts its "landing search panel"
+  // (dates + guests + their own Search button) instead of jumping straight
+  // to the room list, even though we always hand off a complete
+  // checkin/checkout/guests via the URL (openCloudbedsOverlay above returns
+  // early if any of those are missing). Confirmed live (2026-11-16) this is
+  // driven entirely by Cloudbeds' own internal session/quote cache having
+  // gone stale — most commonly after the guest has been idle ~10+ minutes —
+  // and is not something fixable from our side short of a full page reload
+  // (see the "Cloudbeds stale-room limitation" memory; same family of
+  // issue). Since we only ever open the overlay with a complete search
+  // already decided, this landing panel is never something the guest should
+  // need to act on here, so rather than show it, we watch for its own
+  // Search button — a stable data-testid confirmed live, not a guessed
+  // class — and click it on the guest's behalf the moment it appears.
+  //
+  // Debounced like the scroll-lock safety net above, for the same reason:
+  // Cloudbeds' React tree does transient DOM churn while mounting, so this
+  // waits for the DOM to go quiet for a beat before checking rather than
+  // reacting to the very first matching mutation.
+  function initLandingSearchAutoAdvance() {
+    var LANDING_SEARCH_SELECTOR = '[data-testid="landing-search-panel-search-button"]';
+    var pending = null;
+    function check() {
+      var btn = document.querySelector(LANDING_SEARCH_SELECTOR);
+      if (btn) btn.click();
+    }
+    function scheduleCheck() {
+      if (pending) clearTimeout(pending);
+      pending = setTimeout(function () {
+        pending = null;
+        check();
+      }, 250);
+    }
+    new MutationObserver(scheduleCheck).observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+  }
+
   function init() {
     buildPanel();
     wireTriggers();
@@ -1486,6 +1525,7 @@
     initCloudbedsOverlay();
     initGuestCountTextVisibility();
     initScrollLockSafetyNet();
+    initLandingSearchAutoAdvance();
   }
 
   if (document.readyState === "loading") {
