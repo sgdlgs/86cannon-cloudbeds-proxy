@@ -252,29 +252,26 @@
     return !(touchesFriday && touchesSaturday);
   }
 
-  // Confirmed live (2026-11-16) that Cloudbeds' own quote/policy cache for
-  // a given checkin/checkout expires 10 minutes after it's fetched (see
-  // their sessionStorage entry's "_expiration" field). Our own remembered
-  // dates used to outlive that — plain sessionStorage, good for the whole
-  // tab session — so returning after 10+ minutes with the same dates still
-  // unchanged would hand Cloudbeds those same params, find its own cache
-  // gone stale, and fall back to showing its base date-selector instead of
-  // jumping straight to the room list. Matching our own TTL to theirs means
-  // we forget the dates at the same point they would've stopped trusting
-  // them anyway, so the guest re-picks (even the same dates) and gets a
-  // genuinely fresh request instead of replaying a now-stale one.
-  var SESSION_TTL_MS = 10 * 60 * 1000;
-
+  // Tried (2026-11-16) matching our own remembered-dates TTL to Cloudbeds'
+  // 10-minute quote cache, on the theory that replaying stale remembered
+  // dates was what triggered Cloudbeds' "session timed out" base screen.
+  // Reverted after live testing proved that theory wrong: the base-screen
+  // fallback reproduces identically regardless of whether the dates came
+  // from this storage or were just freshly clicked in our own calendar —
+  // it's driven purely by how long it's been since Cloudbeds' OWN widget
+  // last fetched anything in this tab (its own session/auth token idling
+  // out), not by anything in our storage. Expiring our copy only added
+  // friction (forcing a guest to retype dates we could've kept) with zero
+  // effect on the actual symptom. See the "Cloudbeds stale-room limitation"
+  // memory — this is the same family of issue (Cloudbeds' own persisted
+  // state only properly refreshes on a full page reload) and is likewise
+  // not fixable from this side short of that.
   function loadSession() {
     try {
       var raw = sessionStorage.getItem(STORAGE_KEY);
       if (!raw) return null;
       var data = JSON.parse(raw);
       if (!data.checkin || !data.checkout) return null;
-      if (!data.savedAt || Date.now() - data.savedAt > SESSION_TTL_MS) {
-        sessionStorage.removeItem(STORAGE_KEY);
-        return null;
-      }
       return data;
     } catch (e) {
       return null;
@@ -287,8 +284,7 @@
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
         checkin: toISO(state.checkin),
         checkout: toISO(state.checkout),
-        adults: state.adults,
-        savedAt: Date.now()
+        adults: state.adults
       }));
     } catch (e) { /* storage unavailable — widget still works, just won't persist */ }
   }
