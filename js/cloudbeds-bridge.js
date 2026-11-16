@@ -252,12 +252,29 @@
     return !(touchesFriday && touchesSaturday);
   }
 
+  // Confirmed live (2026-11-16) that Cloudbeds' own quote/policy cache for
+  // a given checkin/checkout expires 10 minutes after it's fetched (see
+  // their sessionStorage entry's "_expiration" field). Our own remembered
+  // dates used to outlive that — plain sessionStorage, good for the whole
+  // tab session — so returning after 10+ minutes with the same dates still
+  // unchanged would hand Cloudbeds those same params, find its own cache
+  // gone stale, and fall back to showing its base date-selector instead of
+  // jumping straight to the room list. Matching our own TTL to theirs means
+  // we forget the dates at the same point they would've stopped trusting
+  // them anyway, so the guest re-picks (even the same dates) and gets a
+  // genuinely fresh request instead of replaying a now-stale one.
+  var SESSION_TTL_MS = 10 * 60 * 1000;
+
   function loadSession() {
     try {
       var raw = sessionStorage.getItem(STORAGE_KEY);
       if (!raw) return null;
       var data = JSON.parse(raw);
       if (!data.checkin || !data.checkout) return null;
+      if (!data.savedAt || Date.now() - data.savedAt > SESSION_TTL_MS) {
+        sessionStorage.removeItem(STORAGE_KEY);
+        return null;
+      }
       return data;
     } catch (e) {
       return null;
@@ -270,7 +287,8 @@
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
         checkin: toISO(state.checkin),
         checkout: toISO(state.checkout),
-        adults: state.adults
+        adults: state.adults,
+        savedAt: Date.now()
       }));
     } catch (e) { /* storage unavailable — widget still works, just won't persist */ }
   }
