@@ -391,6 +391,7 @@
     els.panel = panel;
     els.close = closeBtn;
     els.roomChipWrap = panel.querySelector(".bw-room-chip-wrap");
+    els.calendarLoader = panel.querySelector(".bw-calendar-loader");
     els.calendar = panel.querySelector(".bw-calendar");
     els.monthLabel = panel.querySelector(".bw-cal-month");
     els.prevBtn = panel.querySelector(".bw-cal-prev");
@@ -1089,6 +1090,23 @@
     els.submitText.textContent = isLoading ? "Loading…" : "Search";
   }
 
+  // Reuses the same spinner already shown elsewhere in this panel while
+  // rates load (.bw-calendar-loader/.bw-calendar-spinner), but drives it
+  // with a direct !important inline style rather than the "is-loading-
+  // rates" class it normally toggles on — that class gets reassigned by
+  // unrelated rate-cache logic (see initRateCardPrice) on its own render
+  // cycle, which would fight a plain class toggle here. The !important
+  // inline style can't be overridden by that, so the two uses can't
+  // collide even if both happen to be active at once.
+  function setHandoffLoading(isLoading) {
+    if (!els.calendarLoader) return;
+    if (isLoading) {
+      els.calendarLoader.style.setProperty("display", "flex", "important");
+    } else {
+      els.calendarLoader.style.removeProperty("display");
+    }
+  }
+
   function openPanel(roomId, roomLabel, roomMaxGuests, roomNounAttr) {
     state.roomId = roomId || null;
     state.roomLabel = roomId ? (roomLabel || null) : null;
@@ -1336,25 +1354,63 @@
         return;
       }
 
-      setSubmitLoading(false);
+      // Keep our own panel's "still working" feedback up for this whole
+      // handoff — Search button text plus the calendar spinner — rather
+      // than reverting the button to normal right before Cloudbeds
+      // silently resolves whatever it mounts underneath (see the
+      // landing-panel skip below, the reason this now takes a bit longer
+      // than just the mount itself).
+      setHandoffLoading(true);
 
       // Watch for Cloudbeds' own popup to actually land in the DOM —
       // ".cb-bookingengine-root" is the stable class their overlay mounts
       // under (confirmed by inspecting their shipped bundle), unlike their
       // CSS-module class names, which are hashed and could change on any
-      // of their deploys. Tracked unconditionally (not just when onOpened
-      // is given) so the retry click below always knows whether it's
-      // needed.
+      // of their deploys.
+      //
+      // Cloudbeds' own "landing search panel" (its own date/guest picker +
+      // Search button, data-testid="landing-search-panel-search-button")
+      // can mount first instead of the room list — confirmed live
+      // (2026-11-16) whenever Cloudbeds' internal quote/session cache has
+      // gone stale, most commonly after the guest has been idle ~10+
+      // minutes (see the "Cloudbeds stale-room limitation" memory). We
+      // always hand off a complete search, so that panel is never
+      // actionable here. Rather than reveal it and then visibly replace it
+      // a moment later, this keeps OUR panel up (with the spinner above)
+      // until settled, clicking Cloudbeds' own Search button on the
+      // guest's behalf in the meantime — so our panel only ever gives way
+      // directly to the finished room list, never to that intermediate
+      // screen.
+      //
+      // Debounced like the scroll-lock safety net elsewhere in this file:
+      // Cloudbeds' React tree does transient DOM churn while mounting, so
+      // this waits for the DOM to go quiet for a beat before checking,
+      // rather than reacting to the very first matching mutation.
       var mounted = false;
+      var settlePending = null;
+      var LANDING_SEARCH_SELECTOR = '[data-testid="landing-search-panel-search-button"]';
       var finish = function () {
         if (mounted) return;
         mounted = true;
         observer.disconnect();
+        setSubmitLoading(false);
+        setHandoffLoading(false);
         if (onOpened) onOpened();
       };
-      var observer = new MutationObserver(function () {
-        if (document.querySelector(".cb-bookingengine-root")) finish();
-      });
+      var checkSettled = function () {
+        if (mounted || !document.querySelector(".cb-bookingengine-root")) return;
+        var landingBtn = document.querySelector(LANDING_SEARCH_SELECTOR);
+        if (landingBtn) {
+          landingBtn.click();
+          return; // that click's own re-render triggers another settle check
+        }
+        finish();
+      };
+      var scheduleSettleCheck = function () {
+        if (settlePending) clearTimeout(settlePending);
+        settlePending = setTimeout(checkSettled, 250);
+      };
+      var observer = new MutationObserver(scheduleSettleCheck);
       observer.observe(document.body, { childList: true, subtree: true });
 
       btn.click();
@@ -1372,10 +1428,12 @@
         if (!mounted) btn.click();
       }, 600);
 
-      // Safety net in case Cloudbeds ever changes that class name and we
-      // never see it mount — don't leave our panel open (or the guest
-      // stuck mid-redirect) forever.
-      setTimeout(finish, 1500);
+      // Safety net in case Cloudbeds ever changes a class/testid this
+      // depends on and a clean settle never happens — don't leave our
+      // panel open (or the guest stuck mid-redirect) forever. Longer than
+      // the plain-mount case needs (was 1500ms) to leave room for the
+      // extra landing-panel-skip round trip this now also waits through.
+      setTimeout(finish, 3000);
     };
 
     // Clicking before Cloudbeds' loader has finished defining
