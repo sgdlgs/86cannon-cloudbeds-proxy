@@ -1531,8 +1531,15 @@
     function check() {
       var oursOpen = els.panelWrap.classList.contains("is-open");
       var cloudbedsOpen = !!document.querySelector(".cb-bookingengine-root");
-      if (!oursOpen && !cloudbedsOpen && document.body.style.overflow === "hidden") {
-        document.body.style.overflow = "";
+      if (!oursOpen && !cloudbedsOpen) {
+        if (document.body.style.overflow === "hidden") document.body.style.overflow = "";
+        // Same gap as the scroll lock above, same fix shape: Tidio is only
+        // ever restored by OUR panel's own close path (closePanel), which
+        // never runs when a guest reaches Cloudbeds directly (the resume
+        // indicator below) or closes Cloudbeds' own overlay without ever
+        // reopening ours. Once both overlays are confirmed gone, Tidio
+        // should always be visible again regardless of which path got here.
+        setTidioVisible(true);
       }
     }
     function scheduleCheck() {
@@ -1589,6 +1596,159 @@
     });
   }
 
+  // Cloudbeds keeps its entire cart (room, rate, price) in the same
+  // sessionStorage entry as the quote/policy cache already relied on
+  // elsewhere in this file — confirmed live (2026-11-16) by reading its
+  // "cart.items" array directly. Scans for that entry rather than
+  // hardcoding today's key (a numeric id that isn't guaranteed stable)
+  // the same way the other reads of this entry already do.
+  function getCloudbedsCartSession() {
+    for (var i = 0; i < sessionStorage.length; i++) {
+      try {
+        var raw = sessionStorage.getItem(sessionStorage.key(i));
+        if (!raw || raw.indexOf("_expiration") === -1 || raw.indexOf("\"cart\"") === -1) continue;
+        var data = JSON.parse(raw);
+        if (!data._expiration || Date.now() > Number(data._expiration)) continue;
+        var cart = JSON.parse(data.cart);
+        if (cart && cart.items && cart.items.length > 0) return cart;
+      } catch (e) { /* not the entry we're looking for */ }
+    }
+    return null;
+  }
+
+  // "Confirm your stay" floating indicator — appears only when a guest has
+  // closed out of Cloudbeds' overlay (or ours) while something is still
+  // sitting in Cloudbeds' own cart, so they don't have to re-pick dates and
+  // re-find the same room to pick up where they left off. Clicking it skips
+  // our own date-picker panel entirely and re-fires Cloudbeds' hidden
+  // trigger directly — confirmed live that this alone is enough for
+  // Cloudbeds to reopen straight into the existing cart, since it's reading
+  // the same session data this function just checked. Self-contained
+  // inline styles throughout (no shared .bw-* classes, no Webflow CSS
+  // dependency) so this can't collide with or depend on anything else this
+  // script manages.
+  //
+  // Design from Figma (node 4635:2306): 20px from the bottom-right screen
+  // edge, matching .bw-panel's own edge offset exactly.
+  function buildResumeIndicator() {
+    var ARROW_PATHS =
+      '<path d="M0.353553 6L5.85355 0.5" stroke-linejoin="round" stroke="#465850"/>' +
+      '<path d="M0.853553 0.5H5.85355V5.5" stroke-linejoin="round" stroke="#465850"/>';
+
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "bw-resume-indicator";
+    btn.style.cssText =
+      "position:fixed;right:20px;bottom:20px;z-index:999999;" +
+      "display:none;align-items:center;gap:10px;padding:8px 12px;" +
+      "background:#fff;border:1px solid #465850;border-radius:2px;" +
+      "box-shadow:0 2px 10px rgba(0,0,0,0.15);cursor:pointer;" +
+      "font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;font-size:14px;" +
+      "color:#465850;letter-spacing:0.14px;line-height:1.5;white-space:nowrap;";
+    btn.innerHTML =
+      '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;">' +
+        '<path d="M13 2H15.5V15.5H0.5V2H3" stroke-linecap="round" stroke-linejoin="round" stroke="#465850"/>' +
+        '<rect x="11" y="0.5" width="2" height="3" stroke-linecap="round" stroke-linejoin="round" stroke="#465850"/>' +
+        '<rect x="3" y="0.5" width="2" height="3" stroke-linecap="round" stroke-linejoin="round" stroke="#465850"/>' +
+        '<path d="M5 2H11" stroke-linecap="round" stroke-linejoin="round" stroke="#465850"/>' +
+        '<path d="M5 9.57143L6.71429 11.2857L11 7" stroke-linecap="round" stroke-linejoin="round" stroke="#465850"/>' +
+      '</svg>' +
+      '<span class="bw-resume-indicator-text">Confirm your stay</span>' +
+      '<span style="position:relative;width:16px;height:16px;flex-shrink:0;">' +
+        '<span style="position:absolute;top:6.25%;right:6.25%;bottom:59.38%;left:59.38%;">' +
+          '<span style="position:absolute;top:-9.09%;right:-9.09%;bottom:-6.43%;left:-6.43%;">' +
+            '<svg width="100%" height="100%" viewBox="0 0 6.35355 6.35355" fill="none">' + ARROW_PATHS + '</svg>' +
+          '</span>' +
+        '</span>' +
+        '<span style="position:absolute;top:59.37%;right:59.37%;bottom:6.25%;left:6.25%;">' +
+          '<span style="display:block;width:100%;height:100%;transform:rotate(180deg);">' +
+            '<span style="position:absolute;top:-9.09%;right:-9.09%;bottom:-6.43%;left:-6.43%;">' +
+              '<svg width="100%" height="100%" viewBox="0 0 6.35355 6.35355" fill="none">' + ARROW_PATHS + '</svg>' +
+            '</span>' +
+          '</span>' +
+        '</span>' +
+      '</span>';
+
+    document.body.appendChild(btn);
+    return btn;
+  }
+
+  function initResumeIndicator() {
+    var btn = buildResumeIndicator();
+    var textEl = btn.querySelector(".bw-resume-indicator-text");
+    var busy = false;
+
+    function sync() {
+      if (busy) return;
+      var oursOpen = els.panelWrap.classList.contains("is-open");
+      var cloudbedsOpen = !!document.querySelector(".cb-bookingengine-root");
+      var shouldShow = !oursOpen && !cloudbedsOpen && !!getCloudbedsCartSession();
+      btn.style.display = shouldShow ? "flex" : "none";
+    }
+
+    btn.addEventListener("click", function () {
+      if (busy) return;
+      var cbBtn = document.querySelector(".bw-cb-overlay-trigger button");
+      if (!cbBtn) return;
+
+      busy = true;
+      textEl.textContent = "Opening…";
+      btn.disabled = true;
+      setTidioVisible(false);
+
+      // Same settle pattern as openCloudbedsOverlay above: don't treat
+      // ".cb-bookingengine-root" existing as proof of anything by itself
+      // (it mounts as an empty shell first) and don't react to Cloudbeds'
+      // own landing panel if its session happened to go stale between the
+      // check above and this click — just in case, even though clicking
+      // only shows while that check just passed.
+      var settled = false;
+      var pending = null;
+      var LANDING_SEARCH_SELECTOR = '[data-testid="landing-search-panel-search-button"]';
+      var ROOM_OR_CART_SELECTOR =
+        '[data-testid^="rate-plan-guest-quantity-select-"],[data-testid*="shopping-cart"]';
+      var finishOpen = function () {
+        if (settled) return;
+        settled = true;
+        observer.disconnect();
+        busy = false;
+        btn.disabled = false;
+        textEl.textContent = "Confirm your stay";
+        btn.style.display = "none";
+      };
+      var checkSettled = function () {
+        if (settled) return;
+        var root = document.querySelector(".cb-bookingengine-root");
+        if (!root) return;
+        var landingBtn = root.querySelector(LANDING_SEARCH_SELECTOR);
+        if (landingBtn) {
+          landingBtn.click();
+          return;
+        }
+        if (root.querySelector(ROOM_OR_CART_SELECTOR)) finishOpen();
+      };
+      var observer = new MutationObserver(function () {
+        if (pending) clearTimeout(pending);
+        pending = setTimeout(checkSettled, 250);
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+
+      cbBtn.click();
+
+      // Safety net matching the pattern elsewhere in this file — don't
+      // leave the indicator stuck in "Opening…" forever if something
+      // about Cloudbeds' DOM ever changes underneath this.
+      setTimeout(finishOpen, 3000);
+    });
+
+    sync();
+    new MutationObserver(sync).observe(document.body, { childList: true, subtree: true });
+    // Catches pure time-based expiry (the cart's own _expiration passing
+    // while the guest is just sitting on a page, no DOM mutation to react
+    // to) — cheap enough to run this often.
+    setInterval(sync, 15000);
+  }
+
   function init() {
     buildPanel();
     wireTriggers();
@@ -1597,6 +1757,7 @@
     initGuestCountTextVisibility();
     initScrollLockSafetyNet();
     initLandingSearchAutoAdvance();
+    initResumeIndicator();
   }
 
   if (document.readyState === "loading") {
