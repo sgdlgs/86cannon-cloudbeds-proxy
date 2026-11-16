@@ -1431,15 +1431,33 @@
   // own bundle, so this watches for the moment both overlays are
   // confirmed closed and forces scroll back open whenever that coincides
   // with a still-locked body.
+  //
+  // Debounced rather than correcting on the very first matching mutation:
+  // Cloudbeds' own React tree does transient DOM churn while mounting
+  // (nodes briefly removed and re-added), so a single tick where
+  // .cb-bookingengine-root happens to be momentarily absent is not
+  // reliable evidence their modal has actually closed. Waiting for the
+  // DOM to go quiet for a beat, then re-checking, costs nothing in the
+  // real stuck-lock case (it persists indefinitely until corrected) while
+  // avoiding a correction that fires mid-mount and fights their own
+  // overflow handling.
   function initScrollLockSafetyNet() {
-    function correct() {
+    var pending = null;
+    function check() {
       var oursOpen = els.panelWrap.classList.contains("is-open");
       var cloudbedsOpen = !!document.querySelector(".cb-bookingengine-root");
       if (!oursOpen && !cloudbedsOpen && document.body.style.overflow === "hidden") {
         document.body.style.overflow = "";
       }
     }
-    new MutationObserver(correct).observe(document.body, {
+    function scheduleCheck() {
+      if (pending) clearTimeout(pending);
+      pending = setTimeout(function () {
+        pending = null;
+        check();
+      }, 250);
+    }
+    new MutationObserver(scheduleCheck).observe(document.body, {
       childList: true,
       subtree: true,
       attributes: true,
