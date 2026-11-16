@@ -1629,12 +1629,10 @@
   // script manages.
   //
   // Design from Figma (node 4635:2306): 20px from the bottom-right screen
-  // edge, matching .bw-panel's own edge offset exactly.
+  // edge, matching .bw-panel's own edge offset exactly. Expand-icon SVG
+  // (node 4637:2325, updated 2026-11-16) is a single flattened 16x16 asset
+  // now, downloaded and inlined directly — no nested positioning needed.
   function buildResumeIndicator() {
-    var ARROW_PATHS =
-      '<path d="M0.353553 6L5.85355 0.5" stroke-linejoin="round" stroke="#465850"/>' +
-      '<path d="M0.853553 0.5H5.85355V5.5" stroke-linejoin="round" stroke="#465850"/>';
-
     var btn = document.createElement("button");
     btn.type = "button";
     btn.className = "bw-resume-indicator";
@@ -1654,20 +1652,10 @@
         '<path d="M5 9.57143L6.71429 11.2857L11 7" stroke-linecap="round" stroke-linejoin="round" stroke="#465850"/>' +
       '</svg>' +
       '<span class="bw-resume-indicator-text">Confirm your stay</span>' +
-      '<span style="position:relative;width:16px;height:16px;flex-shrink:0;">' +
-        '<span style="position:absolute;top:6.25%;right:6.25%;bottom:59.38%;left:59.38%;">' +
-          '<span style="position:absolute;top:-9.09%;right:-9.09%;bottom:-6.43%;left:-6.43%;">' +
-            '<svg width="100%" height="100%" viewBox="0 0 6.35355 6.35355" fill="none">' + ARROW_PATHS + '</svg>' +
-          '</span>' +
-        '</span>' +
-        '<span style="position:absolute;top:59.37%;right:59.37%;bottom:6.25%;left:6.25%;">' +
-          '<span style="display:block;width:100%;height:100%;transform:rotate(180deg);">' +
-            '<span style="position:absolute;top:-9.09%;right:-9.09%;bottom:-6.43%;left:-6.43%;">' +
-              '<svg width="100%" height="100%" viewBox="0 0 6.35355 6.35355" fill="none">' + ARROW_PATHS + '</svg>' +
-            '</span>' +
-          '</span>' +
-        '</span>' +
-      '</span>';
+      '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;">' +
+        '<path d="M6.5 6.5L1 1M1 6V1H6" stroke-linejoin="round" stroke="#465850"/>' +
+        '<path d="M9.5 9.49955L15 14.9996M15 9.99955V14.9996L10 14.9996" stroke-linejoin="round" stroke="#465850"/>' +
+      '</svg>';
 
     document.body.appendChild(btn);
     return btn;
